@@ -2,7 +2,7 @@ import streamlit as st
 import os
 from neo4j import GraphDatabase
 from langchain_neo4j import Neo4jVector
-from langchain_google_vertexai import ChatVertexAI  # ✅ Google Gemini API Import
+from langchain_google_vertexai import ChatVertexAI  # ✅ Google Gemini API
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.output_parsers import StrOutputParser
@@ -13,7 +13,7 @@ NEO4J_USER = st.secrets["NEO4J_USER"]
 NEO4J_PASSWORD = st.secrets["NEO4J_PASSWORD"]
 GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 
-# Initialize Neo4j Driver
+# ✅ Initialize Neo4j Driver
 def get_neo4j_driver():
     try:
         driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
@@ -22,7 +22,7 @@ def get_neo4j_driver():
         st.error(f"Failed to connect to Neo4j: {e}")
         return None
 
-# Get all documents from Neo4j
+# ✅ Get all documents from Neo4j
 def get_all_documents():
     driver = get_neo4j_driver()
     if not driver:
@@ -36,7 +36,7 @@ def get_all_documents():
     driver.close()
     return docs
 
-# Initialize Graph-based Retriever
+# ✅ Initialize Graph-based Retriever (Fixed `embedding_node_property`)
 def initialize_neo4j_vector():
     driver = get_neo4j_driver()
     if not driver:
@@ -49,6 +49,7 @@ def initialize_neo4j_vector():
             retrieval_query="MATCH (n) WHERE n.text CONTAINS $query RETURN n",
             graph=driver,
             node_label="Document",
+            embedding_node_property="embedding",  # ✅ Added required argument
             text_node_properties=["text"]
         )
         return neo_db
@@ -56,11 +57,11 @@ def initialize_neo4j_vector():
         st.error(f"Error initializing Neo4j retriever: {e}")
         return None
 
-# Initialize Google Gemini LLM
+# ✅ Initialize Google Gemini LLM
 def get_gemini_llm():
     return ChatVertexAI(model="gemini-1.5", google_api_key=GEMINI_API_KEY)
 
-# Retrieve relevant documents from Neo4j
+# ✅ Retrieve relevant documents from Neo4j
 def retrieve_documents(query):
     neo_db = initialize_neo4j_vector()
     if not neo_db:
@@ -71,7 +72,7 @@ def retrieve_documents(query):
     
     return docs
 
-# Process query with RAG-based chatbot
+# ✅ Process query with RAG-based chatbot
 def process_query(question):
     driver = get_neo4j_driver()
     if not driver:
