@@ -1,97 +1,87 @@
 import streamlit as st
-import google.generativeai as genai
+import os
+import json
 from neo4j import GraphDatabase
+from langchain_neo4j import Neo4jVector
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage, AIMessage
+from langchain.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.runnables import RunnableBranch
+from langchain.retrievers import ContextualCompressionRetriever
+from langchain.retrievers.document_compressors import EmbeddingsFilter, DocumentCompressorPipeline
+from langchain_community.document_transformers import EmbeddingsRedundantFilter
+from langchain_text_splitters import TokenTextSplitter
+from langchain_core.output_parsers import StrOutputParser
+from langchain_google_vertexai import ChatVertexAI
 
-# Load API Keys and Neo4j Credentials from Streamlit Secrets
-GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+# Load credentials from Streamlit secrets
 NEO4J_URI = st.secrets["NEO4J_URI"]
 NEO4J_USER = st.secrets["NEO4J_USER"]
 NEO4J_PASSWORD = st.secrets["NEO4J_PASSWORD"]
+GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 
-# Ensure API Key is Set
-if not GEMINI_API_KEY:
-    st.error("GEMINI_API_KEY is missing. Add it in Streamlit Secrets.")
-    st.stop()
+# Initialize Neo4j Driver
+def get_neo4j_driver():
+    return GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
 
-# Initialize Gemini 1.5 LLM
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-1.5-pro")
+# Load all completed documents in Neo4j
+def get_all_documents(driver):
+    query = "MATCH (d:Document {status: 'Completed'}) RETURN d.fileName AS fileName"
+    with driver.session() as session:
+        result = session.run(query)
+        return [record["fileName"] for record in result]
 
-# Establish Neo4j AuraDB Connection
-def get_neo4j_connection():
-    driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
-    return driver
-
-# Query Neo4j for GraphRAG-based Knowledge
-def query_neo4j(user_query):
-    with get_neo4j_connection().session() as session:
-        query = """
-        MATCH (c:Chunk)-[:SOURCE]->(doc:Document)
-        WHERE c.text CONTAINS $user_query OR toLower(c.text) CONTAINS toLower($user_query)
-        OPTIONAL MATCH (c)-[r]->(related)
-        RETURN DISTINCT c.text AS chunk, 
-                        type(r) AS relationship, 
-                        related.text AS related_chunk, 
-                        doc.name AS source
-        LIMIT 5
-        """
-        result = session.run(query, {"user_query": user_query})
-        return [record.values() for record in result]
-
-# Generate AI-Powered Response
-def generate_chat_response(user_query):
-    graph_data = query_neo4j(user_query)
-
-    # If no relevant data is found
-    if not graph_data:
-        return "No relevant information was found in Neo4j AuraDB.", []
-
-    # Extract graph-based knowledge
-    structured_knowledge = "\n".join(
-        [f"- {chunk[:300]}..." for chunk, _, _, _ in graph_data if chunk]
+# Initialize Graph-based Retriever
+def initialize_neo4j_vector(driver):
+    return Neo4jVector.from_existing_graph(
+        embedding=None,
+        index_name="document_index",
+        retrieval_query="MATCH (n) WHERE n.text CONTAINS $query RETURN n",
+        graph=driver,
+        node_label="Document",
+        text_node_properties=["text"]
     )
 
-    # Prepare detailed structured knowledge for "Show Details"
-    detailed_info = [
-        f"""
-        <div style="font-size:14px; padding:10px; border-bottom: 1px solid #ddd;">
-        <b>Chunk:</b> {chunk[:300]}...<br>
-        <b>Relationship:</b> {relationship if relationship else "N/A"} → {related_chunk if related_chunk else "N/A"}<br>
-        <b>Source Document:</b> {source if source else "Unknown"}
-        </div>
-        """
-        for chunk, relationship, related_chunk, source in graph_data
-    ]
+# Initialize Gemini LLM
+def get_gemini_llm():
+    return ChatOpenAI(openai_api_key=GEMINI_API_KEY, model="gemini-1.5")
 
-    # Gemini 1.5 Prompt (GraphRAG Enhanced Answer)
-    prompt = f"""
-    You are an AI assistant using GraphRAG and Neo4j AuraDB.
-    Below is structured knowledge extracted from the database:
+# Retrieve relevant documents from Neo4j
+def retrieve_documents(graph, query):
+    retriever = initialize_neo4j_vector(graph)
+    docs = retriever.invoke({"messages": [HumanMessage(content=query)]})
+    return docs
 
-    {structured_knowledge}
+# Process query with RAG-based chatbot
+def process_query(question):
+    driver = get_neo4j_driver()
+    graph = driver.session()
+    
+    # Retrieve relevant docs
+    docs = retrieve_documents(graph, question)
+    
+    # Generate response using Gemini LLM
+    llm = get_gemini_llm()
+    chat_prompt = ChatPromptTemplate.from_messages(
+        [MessagesPlaceholder(variable_name="messages"), ("human", "User question: {input}")]
+    )
+    rag_chain = chat_prompt | llm
 
-    Question: {user_query}
-    Provide a well-reasoned, professional response using relevant knowledge.
-    """
-
-    try:
-        response = model.generate_content(prompt)
-        return response.text.strip() if response else "No relevant information was found.", detailed_info
-    except Exception as e:
-        return f"An error occurred while retrieving data: {str(e)}", []
+    ai_response = rag_chain.invoke({"messages": [HumanMessage(content=question)], "context": docs})
+    
+    driver.close()
+    
+    return ai_response.content
 
 # Streamlit UI
-st.title("GraphRAG-Powered Chatbot (Gemini 1.5 & Neo4j AuraDB)")
-st.write("Ask a question related to your knowledge graph.")
+st.set_page_config(page_title="GraphRAG Chatbot", layout="centered")
+st.header("💬 GraphRAG Chatbot - Neo4j + Gemini")
 
-user_input = st.text_input("Enter your question:")
+# User input
+user_input = st.text_input("Ask me anything about the documents:", "")
 
+# Handle query
 if user_input:
-    response, detailed_info = generate_chat_response(user_input)
-    st.markdown(f"**Chatbot Response:**\n\n{response}")
-
-    # Show details button
-    if detailed_info:
-        if st.button("Show Details"):
-            for detail in detailed_info:
-                st.markdown(f"<p style='font-size:14px;'>{detail}</p>", unsafe_allow_html=True)
+    with st.spinner("Processing..."):
+        response = process_query(user_input)
+        st.write("**Chatbot:**", response)
