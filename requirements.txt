@@ -1,4 +1,12 @@
 streamlit
 neo4j
-google-generativeai
-requests
+langchain
+langchain-openai
+langchain-google-vertexai
+langchain-community
+langchain-core
+langchain-fireworks
+langchain-neo4j
+pandas
+python-dotenv
+PyMuPDF
