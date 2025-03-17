@@ -3,10 +3,10 @@ import google.generativeai as genai
 from neo4j import GraphDatabase
 
 # Load API Keys and Neo4j Credentials from Streamlit Secrets
-GEMINI_API_KEY = st.secrets["gemini"]["GEMINI_API_KEY"]
-NEO4J_URI = st.secrets["neo4j"]["NEO4J_URI"]
-NEO4J_USER = st.secrets["neo4j"]["NEO4J_USER"]
-NEO4J_PASSWORD = st.secrets["neo4j"]["NEO4J_PASSWORD"]
+GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+NEO4J_URI = st.secrets["NEO4J_URI"]
+NEO4J_USER = st.secrets["NEO4J_USER"]
+NEO4J_PASSWORD = st.secrets["NEO4J_PASSWORD"]
 
 # Ensure API Key is Set
 if not GEMINI_API_KEY:
