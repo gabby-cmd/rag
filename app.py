@@ -27,7 +27,7 @@ def query_neo4j(user_query):
     with get_neo4j_connection().session() as session:
         query = """
         MATCH (c:Chunk)-[:SOURCE]->(doc:Document)
-        WHERE toLower(c.text) CONTAINS toLower($user_query)
+        WHERE c.text CONTAINS $user_query OR toLower(c.text) CONTAINS toLower($user_query)
         OPTIONAL MATCH (c)-[r]->(related)
         RETURN DISTINCT c.text AS chunk, 
                         type(r) AS relationship, 
